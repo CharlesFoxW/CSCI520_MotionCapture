@@ -1,0 +1,4 @@
+/Users/charlesfoxw/Documents/ClionProjects/Project_2/mocapPlayer-starter/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/charlesfoxw/Documents/ClionProjects/Project_2/mocapPlayer-starter/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/Users/charlesfoxw/Documents/ClionProjects/Project_2/mocapPlayer-starter/cmake-build-debug/CMakeFiles/interpolate.dir
+/Users/charlesfoxw/Documents/ClionProjects/Project_2/mocapPlayer-starter/cmake-build-debug/CMakeFiles/mocapPlayer.dir
