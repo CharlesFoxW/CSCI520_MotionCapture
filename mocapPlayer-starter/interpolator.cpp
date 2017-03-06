@@ -103,18 +103,23 @@ void Interpolator::Rotation2Euler(double R[9], double angles[3])
 
 void Interpolator::Euler2Rotation(double angles[3], double R[9])
 {
+    double radiantAngles[3];
     for(int i=0; i<3; i++)
-        angles[i] *= M_PI / 180;
+        radiantAngles[i] = angles[i] * M_PI / 180;
     // result matrix from R = ZYX.
-    R[0] = cos(angles[2]) * cos(angles[1]);
-    R[1] = sin(angles[0]) * cos(angles[2]) * sin(angles[1]) - sin(angles[2]) * cos(angles[0]);
-    R[2] = sin(angles[2]) * sin(angles[0]) + cos(angles[2]) * sin(angles[1]) * cos(angles[0]);
-    R[3] = sin(angles[2]) * cos(angles[1]);
-    R[4] = cos(angles[2]) * cos(angles[0]) + sin(angles[2]) * sin(angles[1]) * sin(angles[0]);
-    R[5] = sin(angles[2]) * sin(angles[1]) * cos(angles[0]) - sin(angles[0]) * cos(angles[2]);
-    R[6] = -1.0 * sin(angles[1]);
-    R[7] = sin(angles[0]) * cos(angles[1]);
-    R[8] = cos(angles[1]) * cos(angles[0]);
+    R[0] = cos(radiantAngles[2]) * cos(radiantAngles[1]);
+    R[1] = sin(radiantAngles[0]) * cos(radiantAngles[2]) * sin(radiantAngles[1])
+           - sin(radiantAngles[2]) * cos(radiantAngles[0]);
+    R[2] = sin(radiantAngles[2]) * sin(radiantAngles[0])
+           + cos(radiantAngles[2]) * sin(radiantAngles[1]) * cos(radiantAngles[0]);
+    R[3] = sin(radiantAngles[2]) * cos(radiantAngles[1]);
+    R[4] = cos(radiantAngles[2]) * cos(radiantAngles[0])
+           + sin(radiantAngles[2]) * sin(radiantAngles[1]) * sin(radiantAngles[0]);
+    R[5] = sin(radiantAngles[2]) * sin(radiantAngles[1]) * cos(radiantAngles[0])
+           - sin(radiantAngles[0]) * cos(radiantAngles[2]);
+    R[6] = -1.0 * sin(radiantAngles[1]);
+    R[7] = sin(radiantAngles[0]) * cos(radiantAngles[1]);
+    R[8] = cos(radiantAngles[1]) * cos(radiantAngles[0]);
 }
 
 void Interpolator::BezierInterpolationEuler(Motion * pInputMotion, Motion * pOutputMotion, int N)
@@ -172,7 +177,55 @@ void Interpolator::BezierInterpolationEuler(Motion * pInputMotion, Motion * pOut
 
 void Interpolator::LinearInterpolationQuaternion(Motion * pInputMotion, Motion * pOutputMotion, int N)
 {
-  // students should implement this
+    int inputLength = pInputMotion->GetNumFrames(); // frames are indexed 0, ..., inputLength-1
+
+    int startKeyframe = 0;
+    while (startKeyframe + N + 1 < inputLength)
+    {
+        int endKeyframe = startKeyframe + N + 1;
+
+        Posture * startPosture = pInputMotion->GetPosture(startKeyframe);
+        Posture * endPosture = pInputMotion->GetPosture(endKeyframe);
+
+        // copy start and end keyframe
+        pOutputMotion->SetPosture(startKeyframe, *startPosture);
+        pOutputMotion->SetPosture(endKeyframe, *endPosture);
+
+        // interpolate in between
+        for(int frame=1; frame<=N; frame++)
+        {
+            Posture interpolatedPosture;
+            double t = 1.0 * frame / (N+1);
+
+            // interpolate root position
+            interpolatedPosture.root_pos = startPosture->root_pos * (1-t) + endPosture->root_pos * t;
+
+            // interpolate bone rotations
+            for (int bone = 0; bone < MAX_BONES_IN_ASF_FILE; bone++) {
+                double startAngles[3], endAngles[3], resultAngles[3];
+                startPosture->bone_rotation[bone].getValue(startAngles);
+                endPosture->bone_rotation[bone].getValue(endAngles);
+
+                Quaternion<double> startQ, endQ, resultQ;
+                Euler2Quaternion(startAngles, startQ);
+                Euler2Quaternion(endAngles, endQ);
+                if (startQ.Norm2() != 0)
+                    startQ.Normalize();
+                if (endQ.Norm2() != 0)
+                    endQ.Normalize();
+                resultQ = Slerp(t, startQ, endQ);
+                Quaternion2Euler(resultQ, resultAngles);
+                interpolatedPosture.bone_rotation[bone].setValue(resultAngles);
+            }
+
+            pOutputMotion->SetPosture(startKeyframe + frame, interpolatedPosture);
+        }
+
+        startKeyframe = endKeyframe;
+    }
+
+    for(int frame=startKeyframe+1; frame<inputLength; frame++)
+        pOutputMotion->SetPosture(frame, *(pInputMotion->GetPosture(frame)));
 }
 
 void Interpolator::BezierInterpolationQuaternion(Motion * pInputMotion, Motion * pOutputMotion, int N)
@@ -196,16 +249,33 @@ void Interpolator::Quaternion2Euler(Quaternion<double> & q, double angles[3])
 
 Quaternion<double> Interpolator::Slerp(double t, Quaternion<double> & qStart, Quaternion<double> & qEnd_)
 {
-  // students should implement this
-  Quaternion<double> result;
-  return result;
+    Quaternion<double> result;
+    double c1, c2, theta;
+    double cosValue = qStart.Gets() * qEnd_.Gets() + qStart.Getx() * qEnd_.Getx()
+                      + qStart.Gety() * qEnd_.Gety() + qStart.Getz() * qEnd_.Getz();
+    if (fabs(cosValue) <= 1)
+        theta = acos(cosValue);
+    else
+        theta = 0;
+    if (sin(theta) == 0) {
+        c1 = 0;
+        c2 = 0;
+    }
+    else {
+        c1 = sin((1.0 - t) * theta) / sin(theta);
+        c2 = sin(t * theta) / sin(theta);
+    }
+    result = c1 * qStart + c2 * qEnd_;
+    if (result.Norm2() != 0)
+        result.Normalize();
+    return result;
 }
 
 Quaternion<double> Interpolator::Double(Quaternion<double> p, Quaternion<double> q)
 {
-  // students should implement this
-  Quaternion<double> result;
-  return result;
+    Quaternion<double> result;
+    result = 2.0 * (p.Gets() * q.Gets() + p.Getx() * q.Getx() + p.Gety() * q.Gety() + p.Getz() * q.Getz()) * q - p;
+    return result;
 }
 
 vector Interpolator::DeCasteljauEuler(double t, vector p0, vector p1, vector p2, vector p3)
