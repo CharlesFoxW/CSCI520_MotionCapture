@@ -130,13 +130,11 @@ void Interpolator::BezierInterpolationEuler(Motion * pInputMotion, Motion * pOut
     while (startKeyframe + N + 1 < inputLength)
     {
         int endKeyframe = startKeyframe + N + 1;
-        int firstCtrlFrame = startKeyframe + (int) ((double) (N + 1) / 3.0 + 0.5);
-        int secondCtrlFrame = startKeyframe + (int) ((double) (N + 1) * 2.0 / 3.0 + 0.5);
+        int prevKeyframe = startKeyframe - N - 1;
+        int nextKeyframe = endKeyframe + N + 1;
 
         Posture * startPosture = pInputMotion->GetPosture(startKeyframe);
         Posture * endPosture = pInputMotion->GetPosture(endKeyframe);
-        Posture * firstCtrlPosture = pInputMotion->GetPosture(firstCtrlFrame);
-        Posture * secondCtrlPosture = pInputMotion->GetPosture(secondCtrlFrame);
 
         // copy start and end keyframe
         pOutputMotion->SetPosture(startKeyframe, *startPosture);
@@ -148,21 +146,46 @@ void Interpolator::BezierInterpolationEuler(Motion * pInputMotion, Motion * pOut
             Posture interpolatedPosture;
             double u = 1.0 * frame / (N+1);
 
-            double c1 = -1.0 * pow(u, 3) + 3.0 * pow(u, 2) - 3.0 * u + 1;
-            double c2 = 3.0 * pow(u, 3) - 6.0 * pow(u, 2) + 3.0 * u;
-            double c3 = -3.0 * pow(u, 3) + 3.0 * pow(u, 2);
-            double c4 = pow(u, 3);
-
             // interpolate root position
-            interpolatedPosture.root_pos = startPosture->root_pos * c1 + firstCtrlPosture->root_pos * c2
-                    + secondCtrlPosture->root_pos * c3 + endPosture->root_pos * c4;
+            if (prevKeyframe < 0 || nextKeyframe >= inputLength) {
+                interpolatedPosture.root_pos = startPosture->root_pos * (1-u) + endPosture->root_pos * u;
+            }
+            else {
+                Posture * prevPosture = pInputMotion->GetPosture(prevKeyframe);
+                Posture * nextPosture = pInputMotion->GetPosture(nextKeyframe);
+                vector barPart = prevPosture->root_pos * (-1.0) + startPosture->root_pos * 2.0;
+                vector bar = barPart * 0.5 + endPosture->root_pos * 0.5;
+                vector nextBarPart = startPosture->root_pos * (-1.0) + endPosture->root_pos * 2.0;
+                vector nextBar = nextBarPart * 0.5 + nextPosture->root_pos * 0.5;
 
-            // interpolate bone rotations
+                vector firstControlPoint = startPosture->root_pos * (1.0 - 1.0/3.0) + bar * 1.0/3.0; //a(n)
+                vector secondControlPoint = endPosture->root_pos * (1.0 + 1.0/3.0) + nextBar * (-1.0/3.0); // b(n+1)
+
+                interpolatedPosture.root_pos = DeCasteljauEuler(u, startPosture->root_pos, firstControlPoint,
+                                                                secondControlPoint, endPosture->root_pos);
+
+            }
+
             for (int bone = 0; bone < MAX_BONES_IN_ASF_FILE; bone++) {
-                interpolatedPosture.bone_rotation[bone] = startPosture->bone_rotation[bone] * c1
-                                                          + firstCtrlPosture->bone_rotation[bone] * c2
-                                                          + secondCtrlPosture->bone_rotation[bone] * c3
-                                                          + endPosture->bone_rotation[bone] * c4;
+                if (prevKeyframe < 0 || nextKeyframe >= inputLength) {
+                    interpolatedPosture.bone_rotation[bone] = startPosture->bone_rotation[bone] * (1-u)
+                                                              + endPosture->bone_rotation[bone] * u;
+                }
+                else {
+                    Posture * prevPosture = pInputMotion->GetPosture(prevKeyframe);
+                    Posture * nextPosture = pInputMotion->GetPosture(nextKeyframe);
+                    vector barPart = prevPosture->bone_rotation[bone] * (-1.0) + startPosture->bone_rotation[bone] * 2.0;
+                    vector bar = barPart * 0.5 + endPosture->bone_rotation[bone] * 0.5;
+                    vector nextBarPart = startPosture->bone_rotation[bone] * (-1.0) + endPosture->bone_rotation[bone] * 2.0;
+                    vector nextBar = nextBarPart * 0.5 + nextPosture->bone_rotation[bone] * 0.5;
+
+                    vector firstControlPoint = startPosture->bone_rotation[bone] * (1.0 - 1.0/3.0) + bar * 1.0/3.0; //a(n)
+                    vector secondControlPoint = endPosture->bone_rotation[bone] * (1.0 + 1.0/3.0) + nextBar * (-1.0/3.0); //b(n+1)
+
+                    interpolatedPosture.bone_rotation[bone] = DeCasteljauEuler(u, startPosture->bone_rotation[bone],
+                                                                               firstControlPoint, secondControlPoint,
+                                                                               endPosture->bone_rotation[bone]);
+                }
             }
 
             pOutputMotion->SetPosture(startKeyframe + frame, interpolatedPosture);
@@ -230,7 +253,80 @@ void Interpolator::LinearInterpolationQuaternion(Motion * pInputMotion, Motion *
 
 void Interpolator::BezierInterpolationQuaternion(Motion * pInputMotion, Motion * pOutputMotion, int N)
 {
-  // students should implement this
+    int inputLength = pInputMotion->GetNumFrames(); // frames are indexed 0, ..., inputLength-1
+
+    int startKeyframe = 0;
+    while (startKeyframe + N + 1 < inputLength)
+    {
+        int endKeyframe = startKeyframe + N + 1;
+        int prevKeyframe = startKeyframe - N - 1;
+        int nextKeyframe = endKeyframe + N + 1;
+
+        Posture * startPosture = pInputMotion->GetPosture(startKeyframe);
+        Posture * endPosture = pInputMotion->GetPosture(endKeyframe);
+
+        // copy start and end keyframe
+        pOutputMotion->SetPosture(startKeyframe, *startPosture);
+        pOutputMotion->SetPosture(endKeyframe, *endPosture);
+
+        // interpolate in between
+        for(int frame=1; frame<=N; frame++)
+        {
+            Posture interpolatedPosture;
+            double u = 1.0 * frame / (N+1);
+
+            // interpolate root position
+            if (prevKeyframe < 0 || nextKeyframe >= inputLength) {
+                interpolatedPosture.root_pos = startPosture->root_pos * (1-u) + endPosture->root_pos * u;
+            }
+            else {
+                Posture * prevPosture = pInputMotion->GetPosture(prevKeyframe);
+                Posture * nextPosture = pInputMotion->GetPosture(nextKeyframe);
+                vector barPart = prevPosture->root_pos * (-1.0) + startPosture->root_pos * 2.0;
+                vector bar = barPart * 0.5 + endPosture->root_pos * 0.5;
+                vector nextBarPart = startPosture->root_pos * (-1.0) + endPosture->root_pos * 2.0;
+                vector nextBar = nextBarPart * 0.5 + nextPosture->root_pos * 0.5;
+
+                vector firstControlPoint = startPosture->root_pos * (1.0 - 1.0/3.0) + bar * 1.0/3.0; //a(n)
+                vector secondControlPoint = endPosture->root_pos * (1.0 + 1.0/3.0) + nextBar * (-1.0/3.0); // b(n+1)
+
+                interpolatedPosture.root_pos = DeCasteljauEuler(u, startPosture->root_pos, firstControlPoint,
+                                                                secondControlPoint, endPosture->root_pos);
+
+            }
+
+            for (int bone = 0; bone < MAX_BONES_IN_ASF_FILE; bone++) {
+
+
+                if (prevKeyframe < 0 || nextKeyframe >= inputLength) {
+                    interpolatedPosture.bone_rotation[bone] = startPosture->bone_rotation[bone] * (1-u)
+                                                              + endPosture->bone_rotation[bone] * u;
+                }
+                else {
+                    Posture * prevPosture = pInputMotion->GetPosture(prevKeyframe);
+                    Posture * nextPosture = pInputMotion->GetPosture(nextKeyframe);
+                    vector barPart = prevPosture->bone_rotation[bone] * (-1.0) + startPosture->bone_rotation[bone] * 2.0;
+                    vector bar = barPart * 0.5 + endPosture->bone_rotation[bone] * 0.5;
+                    vector nextBarPart = startPosture->bone_rotation[bone] * (-1.0) + endPosture->bone_rotation[bone] * 2.0;
+                    vector nextBar = nextBarPart * 0.5 + nextPosture->bone_rotation[bone] * 0.5;
+
+                    vector firstControlPoint = startPosture->bone_rotation[bone] * (1.0 - 1.0/3.0) + bar * 1.0/3.0; //a(n)
+                    vector secondControlPoint = endPosture->bone_rotation[bone] * (1.0 + 1.0/3.0) + nextBar * (-1.0/3.0); //b(n+1)
+
+                    interpolatedPosture.bone_rotation[bone] = DeCasteljauEuler(u, startPosture->bone_rotation[bone],
+                                                                               firstControlPoint, secondControlPoint,
+                                                                               endPosture->bone_rotation[bone]);
+                }
+            }
+
+            pOutputMotion->SetPosture(startKeyframe + frame, interpolatedPosture);
+        }
+
+        startKeyframe = endKeyframe;
+    }
+
+    for(int frame=startKeyframe+1; frame<inputLength; frame++)
+        pOutputMotion->SetPosture(frame, *(pInputMotion->GetPosture(frame)));
 }
 
 void Interpolator::Euler2Quaternion(double angles[3], Quaternion<double> & q) 
@@ -280,15 +376,25 @@ Quaternion<double> Interpolator::Double(Quaternion<double> p, Quaternion<double>
 
 vector Interpolator::DeCasteljauEuler(double t, vector p0, vector p1, vector p2, vector p3)
 {
-  // students should implement this
-  vector result;
-  return result;
+    vector result;
+    vector p10 = p0 * (1-t) + p1 * t;
+    vector p11 = p1 * (1-t) + p2 * t;
+    vector p12 = p2 * (1-t) + p3 * t;
+    vector p20 = p10 * (1-t) + p11 * t;
+    vector p21 = p11 * (1-t) + p12 * t;
+    result = p20 * (1-t) + p21 * t;
+    return result;
 }
 
 Quaternion<double> Interpolator::DeCasteljauQuaternion(double t, Quaternion<double> p0, Quaternion<double> p1, Quaternion<double> p2, Quaternion<double> p3)
 {
-  // students should implement this
-  Quaternion<double> result;
-  return result;
+    Quaternion<double> result;
+    Quaternion<double> p10 = Slerp(t, p0, p1);
+    Quaternion<double> p11 = Slerp(t, p1, p2);
+    Quaternion<double> p12 = Slerp(t, p2, p3);
+    Quaternion<double> p20 = Slerp(t, p10, p11);
+    Quaternion<double> p21 = Slerp(t, p11, p12);
+    result = Slerp(t, p20, p21);
+    return result;
 }
 
